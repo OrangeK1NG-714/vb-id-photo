@@ -1,0 +1,9 @@
+node_modules
+.env
+cert
+data
+storage
+test
+*.log
+npm-debug.log*
+.DS_Store

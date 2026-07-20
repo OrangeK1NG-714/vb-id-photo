@@ -1,0 +1,10 @@
+server/node_modules/
+server/.env
+server/cert/
+server/data/
+server/storage/
+server/*.sqlite
+server/*.sqlite-*
+project.private.config.json
+.DS_Store
+*.log
