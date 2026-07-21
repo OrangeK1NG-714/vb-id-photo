@@ -3,6 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const { appError, inspectImage, validateOptions } = require('./validation');
 const { createMetricsReporter } = require('./metricsReporter');
+const { createConcurrencyGate, createRateLimiter } = require('./security');
 
 function secureTokenMatch(received, expected) {
   if (typeof received !== 'string' || typeof expected !== 'string') return false;
@@ -28,14 +29,43 @@ function createApp({
     ? imageProcessor
     : imageProcessor.processIdPhoto.bind(imageProcessor);
 
+  if (config.trustProxyHops > 0) app.set('trust proxy', config.trustProxyHops);
+
+  const apiLimiter = createRateLimiter({
+    limit: config.apiRateLimitPerMinute || 240,
+    windowMs: 60_000,
+    clock
+  });
+  const processLimiter = createRateLimiter({
+    limit: config.processRateLimitPerTenMinutes || 12,
+    windowMs: 10 * 60_000,
+    clock
+  });
+  const processGate = createConcurrencyGate(config.maxConcurrentProcessing || 2);
+  const previewLimiter = createRateLimiter({
+    limit: config.previewRateLimitPerMinute || 120,
+    windowMs: 60_000,
+    clock
+  });
+  const downloadLimiter = createRateLimiter({
+    limit: config.downloadRateLimitPerMinute || 60,
+    windowMs: 60_000,
+    clock
+  });
+
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'DENY');
     res.set('Referrer-Policy', 'no-referrer');
+    res.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    if (config.production) res.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
     if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
     next();
   });
+
+  app.use('/api', apiLimiter);
 
   app.post('/api/pay/notify', express.raw({ type: 'application/json', limit: '64kb' }), async (req, res, next) => {
     try {
@@ -47,7 +77,7 @@ function createApp({
   });
 
   app.use(express.json({ limit: '64kb' }));
-  app.use('/files/preview', express.static(fileStore.dirs.preview, {
+  app.use('/files/preview', previewLimiter, express.static(fileStore.dirs.preview, {
     dotfiles: 'deny',
     fallthrough: false,
     index: false,
@@ -60,7 +90,7 @@ function createApp({
     limits: { fileSize: config.maxFileBytes || 10 * 1024 * 1024, files: 1, fields: 3, parts: 5 }
   });
 
-  app.post('/api/process', upload.single('photo'), async (req, res, next) => {
+  app.post('/api/process', processLimiter, processGate, upload.single('photo'), async (req, res, next) => {
     let storedFiles;
     try {
       if (!req.file) throw appError('PHOTO_REQUIRED', '未收到图片');
@@ -155,7 +185,7 @@ function createApp({
     }
   });
 
-  app.get('/api/orders/:orderId/download/:kind', (req, res, next) => {
+  app.get('/api/orders/:orderId/download/:kind', downloadLimiter, (req, res, next) => {
     try {
       const order = orderStore.get(req.params.orderId);
       if (!order || order.status === 'expired') throw appError('ORDER_NOT_FOUND', '订单不存在或已过期', 404);

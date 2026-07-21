@@ -33,19 +33,19 @@ jobs:
           # 拉取最新代码
           git pull origin main 2>/dev/null || git clone https://github.com/OrangeK1NG-714/vb-id-photo.git .
 
-          # 只安装 server 的依赖
+          # 只安装 server 的依赖(服务器在国内,用镜像源)
           cd server
-          npm install --production
+          npm install --production --registry=https://registry.npmmirror.com
 
           # 创建必要的目录
           mkdir -p data storage/preview storage/protected
 
-          # 用 PM2 启动或重启服务
+          # 用 PM2 启动或重启服务(固定 3001 端口,避开宝塔占用的 3000)
           pm2 describe id-photo > /dev/null 2>&1
           if [ $? -eq 0 ]; then
-            pm2 restart id-photo
+            PORT=3001 pm2 restart id-photo --update-env
           else
-            pm2 start index.js --name id-photo -e /var/log/pm2/id-photo-error.log -o /var/log/pm2/id-photo-out.log
+            PORT=3001 pm2 start index.js --name id-photo -e /var/log/pm2/id-photo-error.log -o /var/log/pm2/id-photo-out.log
           fi
 
           pm2 save

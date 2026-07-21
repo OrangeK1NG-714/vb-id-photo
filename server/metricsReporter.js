@@ -22,7 +22,8 @@ function createMetricsReporter({ endpoint, logger = console, fetchImpl } = {}) {
       const res = await doFetch(target, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body
+        body,
+        signal: AbortSignal.timeout(5_000)
       });
       return res && res.ok !== false;
     } catch (error) {

@@ -9,7 +9,7 @@ const { createFileStore } = require('../fileStore');
 const { createOrderStore } = require('../orderStore');
 const { createPaymentService } = require('../paymentService');
 
-async function startHarness() {
+async function startHarness({ configOverrides = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-app-'));
   const orderStore = createOrderStore(path.join(root, 'orders.sqlite'));
   const fileStore = createFileStore(path.join(root, 'storage'));
@@ -19,7 +19,8 @@ async function startHarness() {
     maxImagePixels: 20_000_000,
     allowMockPayments: false,
     pay: { configured: false, priceFen: 600 },
-    wx: {}
+    wx: {},
+    ...configOverrides
   };
   const paymentService = createPaymentService({ config, orderStore, wxpay: {} });
   const output = Buffer.from('private-image');
@@ -61,6 +62,19 @@ test('health reports storage and database readiness', async () => {
   const response = await fetch(`${harness.baseUrl}/health`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, database: 'ok', storage: 'ok' });
+  assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  await harness.close();
+});
+
+test('API limiter rejects bursts with retry metadata', async () => {
+  const harness = await startHarness({ configOverrides: { apiRateLimitPerMinute: 2 } });
+  await fetch(`${harness.baseUrl}/api/orders/missing-one`);
+  await fetch(`${harness.baseUrl}/api/orders/missing-two`);
+  const blocked = await fetch(`${harness.baseUrl}/api/orders/missing-three`);
+  assert.equal(blocked.status, 429);
+  assert.equal((await blocked.json()).code, 'RATE_LIMITED');
+  assert.ok(Number(blocked.headers.get('retry-after')) >= 1);
   await harness.close();
 });
 
