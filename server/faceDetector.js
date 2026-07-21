@@ -11,7 +11,10 @@ function createFaceDetector({ apiUrl, apiKey, httpClient = axios }) {
       { image: buffer.toString('base64') },
       {
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-        timeout: 15_000
+        timeout: 15_000,
+        maxContentLength: 1024 * 1024,
+        maxBodyLength: 16 * 1024 * 1024,
+        maxRedirects: 0
       }
     );
     const faces = Array.isArray(response.data?.faces) ? response.data.faces : [];

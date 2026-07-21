@@ -38,7 +38,7 @@ function buildRuntime(runtimeConfig = config, logger = console) {
 
 function startServer(runtimeConfig = config, logger = console) {
   const runtime = buildRuntime(runtimeConfig, logger);
-  const server = runtime.app.listen(runtimeConfig.port, '0.0.0.0', () => {
+  const server = runtime.app.listen(runtimeConfig.port, runtimeConfig.host, () => {
     logger.info(`证件照后端已启动: http://localhost:${runtimeConfig.port}`);
     if (!runtimeConfig.seg.configured) {
       logger.warn('未配置人像分割：仅可开发联调，输出不可用于正式证件照');
@@ -52,6 +52,14 @@ function startServer(runtimeConfig = config, logger = console) {
         : '支付未配置且模拟模式关闭，支付接口将安全拒绝');
     }
   });
+  server.requestTimeout = runtimeConfig.requestTimeoutMs;
+  server.headersTimeout = Math.min(runtimeConfig.headersTimeoutMs, runtimeConfig.requestTimeoutMs);
+  server.keepAliveTimeout = runtimeConfig.keepAliveTimeoutMs;
+  server.maxRequestsPerSocket = runtimeConfig.maxRequestsPerSocket;
+  server.maxConnections = runtimeConfig.maxConnections;
+  server.on('clientError', (_error, socket) => {
+    if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  });
 
   let shuttingDown = false;
   async function shutdown(signal = 'manual') {
@@ -59,7 +67,10 @@ function startServer(runtimeConfig = config, logger = console) {
     shuttingDown = true;
     logger.info(`[shutdown] ${signal}`);
     runtime.stopCleanup();
+    const forceClose = setTimeout(() => server.closeAllConnections(), runtimeConfig.shutdownGraceMs);
+    forceClose.unref();
     await new Promise(resolve => server.close(resolve));
+    clearTimeout(forceClose);
     runtime.orderStore.close();
   }
 

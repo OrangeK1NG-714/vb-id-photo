@@ -26,7 +26,9 @@ function createImageProcessor({
       },
       responseType: 'arraybuffer',
       timeout: 30_000,
-      maxContentLength: 25 * 1024 * 1024
+      maxContentLength: 25 * 1024 * 1024,
+      maxBodyLength: runtimeConfig.maxFileBytes || 10 * 1024 * 1024,
+      maxRedirects: 0
     });
     const cutout = Buffer.from(response.data);
     await inspectImage(cutout, { maxPixels: pixelLimit });
