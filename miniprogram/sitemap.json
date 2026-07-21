@@ -1,7 +1,0 @@
-{
-  "desc": "关于本 sitemap 的更多信息请参考文档",
-  "rules": [{
-    "action": "allow",
-    "page": "*"
-  }]
-}
