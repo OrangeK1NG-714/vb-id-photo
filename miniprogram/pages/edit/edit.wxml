@@ -1,0 +1,57 @@
+<!--pages/edit/edit.wxml-->
+<view class="page">
+  <view class="preview-wrap">
+    <view class="preview-box" style="background-color: {{selectedColor}};">
+      <image
+        wx:if="{{previewSrc}}"
+        class="preview-img"
+        src="{{previewSrc}}"
+        mode="aspectFit" />
+      <view wx:else class="preview-empty">
+        <view wx:if="{{processing}}" class="spinner"></view>
+        <text class="preview-empty-text">{{processing ? '精修中…' : '点击下方生成预览'}}</text>
+      </view>
+    </view>
+    <view class="preview-caption">{{sizeName}} · {{sizeSpec}}</view>
+  </view>
+
+  <view class="panel">
+    <view class="panel-title">背景底色</view>
+    <view class="color-row">
+      <view
+        wx:for="{{colors}}"
+        wx:key="id"
+        class="color-item {{selectedColorId === item.id ? 'color-item--active' : ''}}"
+        bindtap="onSelectColor"
+        data-id="{{item.id}}">
+        <view class="color-dot" style="background-color: {{item.color}};"></view>
+        <view class="color-name">{{item.name}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <view class="panel-title">精修强度</view>
+    <view class="level-row">
+      <view
+        wx:for="{{levels}}"
+        wx:key="id"
+        class="level-item {{selectedLevelId === item.id ? 'level-item--active' : ''}}"
+        bindtap="onSelectLevel"
+        data-id="{{item.id}}">
+        <view class="level-name">{{item.name}}</view>
+        <view class="level-desc">{{item.desc}}</view>
+      </view>
+    </view>
+    <view class="level-note">不做瘦脸、放大眼睛等改变五官的操作；是否符合要求请以对应机构规则为准。</view>
+  </view>
+
+  <view class="footer">
+    <button
+      class="btn-primary {{processing ? 'btn-primary--disabled' : ''}}"
+      bindtap="onGenerate"
+      disabled="{{processing}}">
+      {{processing ? '处理中…' : '生成预览'}}
+    </button>
+  </view>
+</view>

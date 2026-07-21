@@ -1,0 +1,29 @@
+<!--pages/index/index.wxml-->
+<view class="page">
+  <view class="head">
+    <view class="title">证件照制作</view>
+    <view class="subtitle">换底色、裁尺寸、自然精修，符合审核规范</view>
+  </view>
+
+  <view class="section-title">选择尺寸</view>
+  <scroll-view class="size-scroll" scroll-y>
+    <view class="size-list">
+      <view
+        wx:for="{{sizes}}"
+        wx:key="id"
+        class="size-item {{selectedId === item.id ? 'size-item--active' : ''}}"
+        bindtap="onSelectSize"
+        data-id="{{item.id}}">
+        <view class="size-main">
+          <text class="size-name">{{item.name}}</text>
+          <text class="size-spec">{{item.wmm}}×{{item.hmm}}mm</text>
+        </view>
+        <text class="size-px">{{item.wpx}}×{{item.hpx}}px</text>
+      </view>
+    </view>
+  </scroll-view>
+
+  <view class="footer">
+    <button class="btn-primary" bindtap="onChoosePhoto">上传照片</button>
+  </view>
+</view>
