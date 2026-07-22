@@ -17,6 +17,16 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '22'
+        cache: npm
+        cache-dependency-path: server/package-lock.json
+
+    - name: Verify server code
+      # 推送服务器前先在 CI 跑语法检查 + 全部测试（npm run check =
+      # node --check + node --test），失败则不部署，避免坏代码上线。
+      working-directory: server
+      run: |
+        npm ci
+        npm run check
 
     - name: Push code to server
       # 服务器连 GitHub 不稳定（GFW 间歇阻断），不再在服务器上 git pull ——
