@@ -74,6 +74,10 @@ function loadConfig(env = process.env) {
   if (production && Buffer.byteLength(downloadSecret) < 32) {
     throw new Error('生产环境 DOWNLOAD_SECRET 至少需要 32 字节');
   }
+  const internalStatsToken = env.ID_PHOTO_INTERNAL_STATS_TOKEN || '';
+  if (production && Buffer.byteLength(internalStatsToken) < 32) {
+    throw new Error('生产环境 ID_PHOTO_INTERNAL_STATS_TOKEN 至少需要 32 字节');
+  }
   if (production && (!env.WX_APPID || !env.WX_SECRET)) throw new Error('微信小程序配置不完整');
 
   return {
@@ -101,6 +105,7 @@ function loadConfig(env = process.env) {
     maxConnections: positiveInteger(env.MAX_CONNECTIONS, 200, 'MAX_CONNECTIONS'),
     shutdownGraceMs: positiveInteger(env.SHUTDOWN_GRACE_MS, 10_000, 'SHUTDOWN_GRACE_MS'),
     downloadSecret,
+    internalStatsToken,
     allowMockPayments,
     // 可选：统一使用看板 vb-metrics 的 /api/collect 地址。留空则不上报（no-op）。
     metricsEndpoint: optionalHttpsUrl(env.METRICS_ENDPOINT, 'METRICS_ENDPOINT', production),

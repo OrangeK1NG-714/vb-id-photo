@@ -42,6 +42,8 @@ function createApp({
     clock
   });
   const processGate = createConcurrencyGate(config.maxConcurrentProcessing || 2);
+  const statsCache = new Map();
+  const statsCacheTtlMs = 15_000;
   const previewLimiter = createRateLimiter({
     limit: config.previewRateLimitPerMinute || 120,
     windowMs: 60_000,
@@ -66,6 +68,33 @@ function createApp({
   });
 
   app.use('/api', apiLimiter);
+
+  app.get('/api/internal/stats', (req, res, next) => {
+    try {
+      const received = String(req.headers.authorization || '').replace(/^Bearer\s+/, '');
+      if (!config.internalStatsToken || !secureTokenMatch(received, config.internalStatsToken)) {
+        throw appError('INTERNAL_STATS_UNAUTHORIZED', '内部统计凭证无效', 401);
+      }
+      const rawDays = req.query.days == null ? '7' : String(req.query.days);
+      if (!/^\d+$/.test(rawDays)) throw appError('INVALID_STATS_RANGE', '统计天数无效');
+      const days = Number(rawDays);
+      if (!Number.isSafeInteger(days) || days < 1 || days > 365) {
+        throw appError('INVALID_STATS_RANGE', '统计天数必须在 1 到 365 之间');
+      }
+      const now = clock();
+      const cached = statsCache.get(days);
+      if (cached && cached.expiresAt > now) {
+        res.json(cached.payload);
+        return;
+      }
+      const since = Math.max(0, now - days * 24 * 60 * 60 * 1000);
+      const payload = { ok: true, rangeDays: days, ...orderStore.stats({ since }) };
+      statsCache.set(days, { payload, expiresAt: now + statsCacheTtlMs });
+      res.json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.post('/api/pay/notify', express.raw({ type: 'application/json', limit: '64kb' }), async (req, res, next) => {
     try {

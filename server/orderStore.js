@@ -70,6 +70,18 @@ function createOrderStore(filename) {
   const expired = database.prepare(`
     SELECT * FROM orders WHERE created_at < ? AND status != 'expired' ORDER BY created_at ASC
   `);
+  const totalOrders = database.prepare('SELECT COUNT(*) AS count FROM orders');
+  const recentOrders = database.prepare('SELECT COUNT(*) AS count FROM orders WHERE created_at >= ?');
+  const groupedRecent = Object.freeze({
+    status: database.prepare('SELECT status AS value, COUNT(*) AS count FROM orders WHERE created_at >= ? GROUP BY status ORDER BY status'),
+    size: database.prepare('SELECT size_id AS value, COUNT(*) AS count FROM orders WHERE created_at >= ? GROUP BY size_id ORDER BY count DESC, size_id'),
+    color: database.prepare('SELECT color_id AS value, COUNT(*) AS count FROM orders WHERE created_at >= ? GROUP BY color_id ORDER BY count DESC, color_id'),
+    level: database.prepare('SELECT level AS value, COUNT(*) AS count FROM orders WHERE created_at >= ? GROUP BY level ORDER BY count DESC, level')
+  });
+  const faceAdjustedRecent = database.prepare(`
+    SELECT face_adjusted AS value, COUNT(*) AS count
+    FROM orders WHERE created_at >= ? GROUP BY face_adjusted ORDER BY face_adjusted DESC
+  `);
 
   function get(orderId) {
     return mapRow(select.get(orderId));
@@ -113,6 +125,20 @@ function createOrderStore(filename) {
     return expired.all(cutoff).map(mapRow);
   }
 
+  function stats({ since }) {
+    if (!Number.isSafeInteger(since) || since < 0) throw new Error('统计起始时间无效');
+    const mapCounts = rows => Object.fromEntries(rows.map(row => [String(row.value), Number(row.count)]));
+    return {
+      total: Number(totalOrders.get().count),
+      recent: Number(recentOrders.get(since).count),
+      byStatus: mapCounts(groupedRecent.status.all(since)),
+      bySize: mapCounts(groupedRecent.size.all(since)),
+      byColor: mapCounts(groupedRecent.color.all(since)),
+      byLevel: mapCounts(groupedRecent.level.all(since)),
+      faceAdjusted: mapCounts(faceAdjustedRecent.all(since))
+    };
+  }
+
   function health() {
     return database.prepare('SELECT 1 AS ok').get().ok === 1;
   }
@@ -121,7 +147,7 @@ function createOrderStore(filename) {
     database.close();
   }
 
-  return { create, get, transition, listExpired, health, close };
+  return { create, get, transition, listExpired, stats, health, close };
 }
 
 module.exports = { createOrderStore, TRANSITIONS };

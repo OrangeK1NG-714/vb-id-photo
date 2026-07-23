@@ -9,7 +9,7 @@ const { createFileStore } = require('../fileStore');
 const { createOrderStore } = require('../orderStore');
 const { createPaymentService } = require('../paymentService');
 
-async function startHarness({ configOverrides = {} } = {}) {
+async function startHarness({ configOverrides = {}, clock = () => Date.now() } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-app-'));
   const orderStore = createOrderStore(path.join(root, 'orders.sqlite'));
   const fileStore = createFileStore(path.join(root, 'storage'));
@@ -37,7 +37,8 @@ async function startHarness({ configOverrides = {} } = {}) {
       backgroundReplaced: false
     }),
     paymentService,
-    logger: { error() {} }
+    logger: { error() {} },
+    clock
   });
   const server = await new Promise(resolve => {
     const running = app.listen(0, '127.0.0.1', () => resolve(running));
@@ -56,6 +57,52 @@ async function startHarness({ configOverrides = {} } = {}) {
     }
   };
 }
+
+test('internal stats require an independent token and expose only aggregate order data', async () => {
+  const now = 2_000_000_000_000;
+  const harness = await startHarness({
+    configOverrides: { internalStatsToken: 'independent-internal-stats-token' },
+    clock: () => now
+  });
+  const files = {
+    previewFile: harness.fileStore.save('preview', Buffer.from('p'), 'jpg'),
+    hdFile: harness.fileStore.save('protected', Buffer.from('h'), 'jpg'),
+    sheetFile: harness.fileStore.save('protected', Buffer.from('s'), 'jpg')
+  };
+  harness.orderStore.create({
+    orderId: 'sensitive-order', sizeId: 'one-inch', colorId: 'white', level: 'standard',
+    ...files, downloadToken: 'must-not-leak', faceAdjusted: true, createdAt: now - 60_000
+  });
+  harness.orderStore.transition('sensitive-order', 'paid', {
+    openid: 'openid-must-not-leak', transactionId: 'transaction-must-not-leak', updatedAt: now
+  });
+  harness.orderStore.create({
+    orderId: 'outside-window', sizeId: 'two-inch', colorId: 'blue', level: 'natural',
+    ...files, downloadToken: 'old-secret', createdAt: now - 8 * 24 * 60 * 60 * 1000
+  });
+
+  assert.equal((await fetch(`${harness.baseUrl}/api/internal/stats`)).status, 401);
+  const response = await fetch(`${harness.baseUrl}/api/internal/stats?days=7`, {
+    headers: { authorization: 'Bearer independent-internal-stats-token' }
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.total, 2);
+  assert.equal(body.recent, 1);
+  assert.deepEqual(body.byStatus, { paid: 1 });
+  assert.deepEqual(body.bySize, { 'one-inch': 1 });
+  assert.deepEqual(body.faceAdjusted, { '1': 1 });
+  const serialized = JSON.stringify(body);
+  for (const secret of ['sensitive-order', 'openid-must-not-leak', 'transaction-must-not-leak', 'must-not-leak']) {
+    assert.equal(serialized.includes(secret), false);
+  }
+  const invalid = await fetch(`${harness.baseUrl}/api/internal/stats?days=366`, {
+    headers: { authorization: 'Bearer independent-internal-stats-token' }
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, 'INVALID_STATS_RANGE');
+  await harness.close();
+});
 
 test('health reports storage and database readiness', async () => {
   const harness = await startHarness();

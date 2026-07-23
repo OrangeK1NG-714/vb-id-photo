@@ -52,3 +52,25 @@ test('expired query excludes already expired orders', () => {
   assert.equal(store.listExpired(500).length, 0);
   store.close();
 });
+
+test('stats aggregate only non-sensitive dimensions inside the requested window', () => {
+  const store = createOrderStore(':memory:');
+  store.create({ ...order('old'), createdAt: 100, colorId: 'red' });
+  store.create({ ...order('recent-paid'), createdAt: 1000, faceAdjusted: true });
+  store.transition('recent-paid', 'paid', { transactionId: 'must-not-leak' });
+  store.create({ ...order('recent-created'), createdAt: 1100, sizeId: 'two-inch', level: 'natural' });
+
+  const stats = store.stats({ since: 500 });
+  assert.deepEqual(stats, {
+    total: 3,
+    recent: 2,
+    byStatus: { created: 1, paid: 1 },
+    bySize: { 'one-inch': 1, 'two-inch': 1 },
+    byColor: { blue: 2 },
+    byLevel: { natural: 1, standard: 1 },
+    faceAdjusted: { '0': 1, '1': 1 }
+  });
+  assert.equal(JSON.stringify(stats).includes('must-not-leak'), false);
+  assert.throws(() => store.stats({ since: -1 }), /统计起始时间无效/);
+  store.close();
+});
