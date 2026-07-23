@@ -12,6 +12,32 @@ function secureTokenMatch(received, expected) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function hostname(raw) {
+  try {
+    return new URL(`http://${raw}`).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+function isPrivateHostname(value) {
+  if (value === 'localhost' || value === '::1' || value.startsWith('127.')) return true;
+  const octets = value.split('.').map(Number);
+  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+  return octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168);
+}
+
+function isPublicInternalRequest(req) {
+  const hosts = [String(req.headers.host || '')];
+  const forwarded = String(req.headers['x-forwarded-host'] || '').split(',', 1)[0].trim();
+  if (forwarded) hosts.push(forwarded);
+  return hosts.some(value => !isPrivateHostname(hostname(value)));
+}
+
 function createApp({
   config,
   orderStore,
@@ -70,6 +96,10 @@ function createApp({
   app.use('/api', apiLimiter);
 
   app.get('/api/internal/stats', (req, res, next) => {
+    if (isPublicInternalRequest(req)) {
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
     try {
       const received = String(req.headers.authorization || '').replace(/^Bearer\s+/, '');
       if (!config.internalStatsToken || !secureTokenMatch(received, config.internalStatsToken)) {

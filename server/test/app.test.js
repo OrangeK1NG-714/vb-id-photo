@@ -82,6 +82,14 @@ test('internal stats require an independent token and expose only aggregate orde
   });
 
   assert.equal((await fetch(`${harness.baseUrl}/api/internal/stats`)).status, 401);
+  const publicResponse = await fetch(`${harness.baseUrl}/api/internal/stats?days=7`, {
+    headers: {
+      host: 'photo.richardq.tech',
+      'x-forwarded-host': 'photo.richardq.tech',
+      authorization: 'Bearer independent-internal-stats-token'
+    }
+  });
+  assert.equal(publicResponse.status, 404);
   const response = await fetch(`${harness.baseUrl}/api/internal/stats?days=7`, {
     headers: { authorization: 'Bearer independent-internal-stats-token' }
   });
