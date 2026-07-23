@@ -61,13 +61,12 @@ jobs:
           # 统计令牌仅从 GitHub Secret 注入，并原子更新既有生产 .env。
           # 不打印令牌，也不允许缺失/弱令牌启动新版本。
           test "${#ID_PHOTO_INTERNAL_STATS_TOKEN}" -ge 32
-          test -f .env
           ENV_FILE="$PWD/.env" node <<'NODE'
           const fs = require("node:fs");
           const file = process.env.ENV_FILE;
           const token = process.env.ID_PHOTO_INTERNAL_STATS_TOKEN;
           if (!file || !token || Buffer.byteLength(token) < 32) throw new Error("invalid internal stats token");
-          const current = fs.readFileSync(file, "utf8");
+          const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
           const line = `ID_PHOTO_INTERNAL_STATS_TOKEN=${token}`;
           const next = /^ID_PHOTO_INTERNAL_STATS_TOKEN=.*$/m.test(current)
             ? current.replace(/^ID_PHOTO_INTERNAL_STATS_TOKEN=.*$/m, line)
