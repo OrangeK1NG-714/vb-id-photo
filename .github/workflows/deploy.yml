@@ -125,7 +125,7 @@ jobs:
           --arg level "$LEVEL" \
           --arg sound "$SOUND" \
           --arg id "cicd-${{ github.repository_id }}-deploy" \
-          --arg icon "https://stats.richardq.tech/icons/id-photo.png" \
+          --arg icon "https://stats.richardq.tech/icon-id-photo.png" \
           --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           '{device_key:$key,title:$title,subtitle:"GitHub Actions",body:$body,group:$group,level:$level,sound:$sound,id:$id,icon:$icon,url:$url,isArchive:"1"}' \
           | curl -fsS -m 10 -X POST "https://api.day.app/push" \
