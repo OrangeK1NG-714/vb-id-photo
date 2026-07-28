@@ -92,11 +92,22 @@ jobs:
 
           pm2 save
 
-          # 部署后真实健康检查：服务存活，且携正确令牌的回环统计请求可用。
-          sleep 1
-          curl -sf http://127.0.0.1:3001/health
-          curl -sf -H "Authorization: Bearer $ID_PHOTO_INTERNAL_STATS_TOKEN" \
-            "http://127.0.0.1:3001/api/internal/stats?days=1" > /dev/null
+          # PM2 重启后，SQLite 打开与应用初始化可能需要数秒。只接受同时通过
+          # 健康检查和受令牌保护的回环统计检查，最多等待 30 秒。
+          ready=0
+          for attempt in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:3001/health > /dev/null && \
+              curl -fsS -H "Authorization: Bearer $ID_PHOTO_INTERNAL_STATS_TOKEN" \
+                "http://127.0.0.1:3001/api/internal/stats?days=1" > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "ID Photo did not become ready within 30 seconds" >&2
+            exit 1
+          fi
 
           echo "✅ ID Photo backend deployed successfully"
 
