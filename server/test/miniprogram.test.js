@@ -25,3 +25,11 @@ test('result page restores persisted order state', () => {
   assert.match(source, /\/api\/orders\//);
   assert.match(source, /recoverOrder/);
 });
+
+test('entry page describes concrete processing without approval guarantees', () => {
+  const source = fs.readFileSync(path.join(miniRoot, 'pages/index/index.wxml'), 'utf8');
+  const productRequirements = fs.readFileSync(path.resolve(miniRoot, '../PRD.md'), 'utf8');
+  assert.match(source, /换底色、裁尺寸、自然精修/);
+  assert.doesNotMatch(source, /保证过审|一定过审|符合审核规范/);
+  assert.doesNotMatch(productRequirements, /保证过审|一定过审/);
+});
