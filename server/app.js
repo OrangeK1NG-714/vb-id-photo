@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const multer = require('multer');
-const { appError, inspectImage, validateOptions } = require('./validation');
+const { appError } = require('./validation');
 const { createMetricsReporter } = require('./metricsReporter');
 const { createConcurrencyGate, createRateLimiter } = require('./security');
 
@@ -42,7 +42,7 @@ function createApp({
   config,
   orderStore,
   fileStore,
-  imageProcessor,
+  processOrder,
   paymentService,
   metricsReporter,
   logger = console,
@@ -51,9 +51,6 @@ function createApp({
   const app = express();
   // Optional anonymous usage reporting to the unified dashboard; no-op if unset.
   const metrics = metricsReporter || createMetricsReporter({ endpoint: config.metricsEndpoint, logger });
-  const processImage = typeof imageProcessor === 'function'
-    ? imageProcessor
-    : imageProcessor.processIdPhoto.bind(imageProcessor);
 
   if (config.trustProxyHops > 0) app.set('trust proxy', config.trustProxyHops);
 
@@ -150,46 +147,26 @@ function createApp({
   });
 
   app.post('/api/process', processLimiter, processGate, upload.single('photo'), async (req, res, next) => {
-    let storedFiles;
     try {
       if (!req.file) throw appError('PHOTO_REQUIRED', '未收到图片');
-      const options = validateOptions({
-        sizeId: req.body.sizeId || 'one-inch',
-        colorId: req.body.colorId || 'white',
-        level: req.body.level || 'standard'
+      const result = await processOrder({
+        photoBuffer: req.file.buffer,
+        options: {
+          sizeId: req.body.sizeId || 'one-inch',
+          colorId: req.body.colorId || 'white',
+          level: req.body.level || 'standard'
+        }
       });
-      await inspectImage(req.file.buffer, { maxPixels: config.maxImagePixels || 20_000_000 });
-      const output = await processImage(req.file.buffer, options);
-      storedFiles = {
-        previewFile: fileStore.save('preview', output.previewBuffer, 'jpg'),
-        hdFile: fileStore.save('protected', output.hdBuffer, 'jpg'),
-        sheetFile: fileStore.save('protected', output.sheetBuffer, 'jpg')
-      };
-      const orderId = crypto.randomBytes(16).toString('hex');
-      const downloadToken = crypto.randomBytes(32).toString('hex');
-      orderStore.create({
-        orderId,
-        ...options,
-        ...storedFiles,
-        downloadToken,
-        faceAdjusted: output.faceAdjusted,
-        createdAt: clock()
-      });
-      void metrics.report('open', orderId);
-      const qualityWarnings = [];
-      if (!output.backgroundReplaced) qualityWarnings.push('开发降级模式未完成人像抠图，不可用于正式证件照');
-      if (!output.faceAdjusted) qualityWarnings.push('未完成人脸位置校验，请人工确认头顶与下巴完整');
       res.status(201).json({
-        orderId,
-        previewUrl: `${config.publicBaseUrl}/files/preview/${storedFiles.previewFile}`,
-        sizeId: options.sizeId,
-        colorId: options.colorId,
-        faceAdjusted: Boolean(output.faceAdjusted),
-        processingMode: output.faceDetection || 'unavailable',
-        qualityWarnings
+        orderId: result.orderId,
+        previewUrl: `${config.publicBaseUrl}/files/preview/${result.previewFile}`,
+        sizeId: result.sizeId,
+        colorId: result.colorId,
+        faceAdjusted: result.faceAdjusted,
+        processingMode: result.processingMode,
+        qualityWarnings: result.qualityWarnings
       });
     } catch (error) {
-      if (storedFiles) fileStore.removeOrderFiles(storedFiles);
       next(error);
     }
   });
@@ -280,7 +257,7 @@ function createApp({
     }
   });
 
-  app.use((error, _req, res, _next) => {
+  app.use((error, _req, res, next) => {
     let normalized = error;
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       normalized = appError('IMAGE_FILE_TOO_LARGE', '图片文件过大', 413);
@@ -292,6 +269,10 @@ function createApp({
       normalized = appError('FILE_NOT_FOUND', '文件不存在', 404);
     }
     logger.error(`[${normalized.code || 'INTERNAL_ERROR'}] ${normalized.message}`);
+    if (res.headersSent) {
+      next(normalized);
+      return;
+    }
     const status = normalized.status || 500;
     res.status(status).json({
       code: normalized.code || 'INTERNAL_ERROR',

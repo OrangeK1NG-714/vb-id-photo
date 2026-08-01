@@ -4,10 +4,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { createProcessOrder } = require('../application/processOrder');
 const { createApp } = require('../app');
 const { createFileStore } = require('../fileStore');
 const { createOrderStore } = require('../orderStore');
 const { createPaymentService } = require('../paymentService');
+const { inspectImage, validateOptions } = require('../validation');
 
 async function startHarness({ configOverrides = {}, clock = () => Date.now() } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-app-'));
@@ -24,19 +26,38 @@ async function startHarness({ configOverrides = {}, clock = () => Date.now() } =
   };
   const paymentService = createPaymentService({ config, orderStore, wxpay: {} });
   const output = Buffer.from('private-image');
+  const metricsReporter = { report: async () => false };
+  const processOrder = createProcessOrder({
+    validateOptions,
+    imagePort: {
+      inspect: inspectImage,
+      process: async () => ({
+        previewBuffer: Buffer.from('preview-image'),
+        hdBuffer: output,
+        sheetBuffer: output,
+        faceAdjusted: false,
+        faceDetection: 'unavailable',
+        backgroundReplaced: false
+      })
+    },
+    orderPort: orderStore,
+    filePort: fileStore,
+    metricsPort: metricsReporter,
+    idPort: {
+      createOrderId: () => 'a'.repeat(32),
+      createDownloadToken: () => 'b'.repeat(64)
+    },
+    logger: { error() {} },
+    clock,
+    maxImagePixels: config.maxImagePixels
+  });
   const app = createApp({
     config,
     orderStore,
     fileStore,
-    imageProcessor: async () => ({
-      previewBuffer: Buffer.from('preview-image'),
-      hdBuffer: output,
-      sheetBuffer: output,
-      faceAdjusted: false,
-      faceDetection: 'unavailable',
-      backgroundReplaced: false
-    }),
+    processOrder,
     paymentService,
+    metricsReporter,
     logger: { error() {} },
     clock
   });

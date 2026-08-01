@@ -10,13 +10,17 @@ function boolean(value, fallback = false) {
 }
 
 function positiveInteger(value, fallback, name) {
-  const parsed = Number.parseInt(value == null || value === '' ? String(fallback) : value, 10);
+  const raw = value == null || value === '' ? String(fallback) : String(value);
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} 必须是正整数`);
+  const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} 必须是正整数`);
   return parsed;
 }
 
 function nonNegativeInteger(value, fallback, name) {
-  const parsed = Number.parseInt(value == null || value === '' ? String(fallback) : value, 10);
+  const raw = value == null || value === '' ? String(fallback) : String(value);
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} 必须是非负整数`);
+  const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${name} 必须是非负整数`);
   return parsed;
 }
@@ -28,6 +32,9 @@ function optionalHttpsUrl(value, name, production) {
     parsed = new URL(value);
   } catch {
     throw new Error(`${name} 必须是有效 URL`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`${name} 必须使用 HTTP 或 HTTPS`);
   }
   if (production && parsed.protocol !== 'https:') throw new Error(`生产环境 ${name} 必须使用 HTTPS`);
   return parsed.toString().replace(/\/$/, '');
@@ -49,7 +56,7 @@ function loadConfig(env = process.env) {
     serialNo: env.WX_PAY_SERIAL || '',
     privateKeyPath: resolvePath(env.WX_PAY_PRIVATE_KEY_PATH, './cert/apiclient_key.pem'),
     platformCertPath: resolvePath(env.WX_PAY_PLATFORM_CERT_PATH, './cert/wechatpay_platform.pem'),
-    notifyUrl: env.WX_PAY_NOTIFY_URL || '',
+    notifyUrl: optionalHttpsUrl(env.WX_PAY_NOTIFY_URL, 'WX_PAY_NOTIFY_URL', production),
     priceFen: positiveInteger(env.PRICE_FEN, 600, 'PRICE_FEN')
   };
   const payConfigured = Boolean(
@@ -61,10 +68,11 @@ function loadConfig(env = process.env) {
     throw new Error('WX_PAY_KEY 必须为 32 字节');
   }
 
-  const publicBaseUrl = (env.PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-  if (production && !publicBaseUrl.startsWith('https://')) {
-    throw new Error('生产环境 PUBLIC_BASE_URL 必须使用 HTTPS');
-  }
+  const publicBaseUrl = optionalHttpsUrl(
+    env.PUBLIC_BASE_URL || 'http://localhost:3000',
+    'PUBLIC_BASE_URL',
+    production
+  );
 
   const seg = { apiUrl: optionalHttpsUrl(env.SEG_API_URL, 'SEG_API_URL', production), apiKey: env.SEG_API_KEY || '' };
   const segmentationConfigured = Boolean(seg.apiUrl && seg.apiKey);
