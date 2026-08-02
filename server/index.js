@@ -1,12 +1,16 @@
+const crypto = require('node:crypto');
 const path = require('node:path');
 const config = require('./config');
+const { createProcessOrder } = require('./application/processOrder');
 const { createApp } = require('./app');
 const { startCleanup } = require('./cleanup');
 const { createFaceDetector } = require('./faceDetector');
 const { createFileStore } = require('./fileStore');
 const { createImageProcessor } = require('./imageProcessor');
+const { createMetricsReporter } = require('./metricsReporter');
 const { createOrderStore } = require('./orderStore');
 const { createPaymentService } = require('./paymentService');
+const { inspectImage, validateOptions } = require('./validation');
 const { createWxPay } = require('./wxpay');
 
 function buildRuntime(runtimeConfig = config, logger = console) {
@@ -14,6 +18,26 @@ function buildRuntime(runtimeConfig = config, logger = console) {
   const fileStore = createFileStore(runtimeConfig.storageDir);
   const faceDetector = createFaceDetector(runtimeConfig.face);
   const imageProcessor = createImageProcessor({ runtimeConfig, faceDetector, logger });
+  const metricsReporter = createMetricsReporter({
+    endpoint: runtimeConfig.metricsEndpoint,
+    logger
+  });
+  const processOrder = createProcessOrder({
+    validateOptions,
+    imagePort: {
+      inspect: inspectImage,
+      process: imageProcessor.processIdPhoto.bind(imageProcessor)
+    },
+    orderPort: orderStore,
+    filePort: fileStore,
+    metricsPort: metricsReporter,
+    idPort: {
+      createOrderId: () => crypto.randomBytes(16).toString('hex'),
+      createDownloadToken: () => crypto.randomBytes(32).toString('hex')
+    },
+    logger,
+    maxImagePixels: runtimeConfig.maxImagePixels
+  });
   const wxpay = createWxPay(runtimeConfig);
   const paymentService = createPaymentService({
     config: runtimeConfig,
@@ -24,8 +48,9 @@ function buildRuntime(runtimeConfig = config, logger = console) {
     config: runtimeConfig,
     orderStore,
     fileStore,
-    imageProcessor,
+    processOrder,
     paymentService,
+    metricsReporter,
     logger
   });
   const stopCleanup = startCleanup({

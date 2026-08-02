@@ -25,6 +25,51 @@ test('file resolution rejects traversal and invalid kinds', () => {
   assert.throws(() => store.save('public', Buffer.from('x'), 'jpg'), /非法存储类型/);
 });
 
+test('grouped order file writes roll back earlier private files when a later write fails', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-rollback-'));
+  const store = createFileStore(root);
+
+  assert.throws(() => store.saveOrderFiles({
+    previewBuffer: Buffer.from('preview'),
+    hdBuffer: Buffer.alloc(0),
+    sheetBuffer: Buffer.from('sheet')
+  }), /文件内容为空/);
+
+  assert.deepEqual(fs.readdirSync(store.dirs.preview), []);
+  assert.deepEqual(fs.readdirSync(store.dirs.protected), []);
+});
+
+test('an atomic rename failure removes the private temporary photo', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-rename-'));
+  const store = createFileStore(root);
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => {
+    const error = new Error('simulated rename failure');
+    error.code = 'EIO';
+    throw error;
+  };
+
+  try {
+    assert.throws(
+      () => store.save('protected', Buffer.from('private-photo'), 'jpg'),
+      /simulated rename failure/
+    );
+  } finally {
+    fs.renameSync = originalRename;
+  }
+
+  assert.deepEqual(fs.readdirSync(store.dirs.protected), []);
+});
+
+test('order file cleanup accepts partial records left by interrupted writes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-partial-'));
+  const store = createFileStore(root);
+  const previewFile = store.save('preview', Buffer.from('preview'), 'jpg');
+
+  assert.doesNotThrow(() => store.removeOrderFiles({ previewFile }));
+  assert.equal(fs.existsSync(store.resolve('preview', previewFile)), false);
+});
+
 test('cleanup is idempotent and expires persisted orders', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-clean-'));
   const fileStore = createFileStore(root);

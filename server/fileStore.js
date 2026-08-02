@@ -28,8 +28,23 @@ function createFileStore(root) {
     const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
     const destination = path.join(directory(kind), name);
     const temporary = `${destination}.tmp`;
-    fs.writeFileSync(temporary, buffer, { mode: 0o600, flag: 'wx' });
-    fs.renameSync(temporary, destination);
+    try {
+      fs.writeFileSync(temporary, buffer, { mode: 0o600, flag: 'wx' });
+      fs.renameSync(temporary, destination);
+    } catch (error) {
+      try {
+        fs.unlinkSync(temporary);
+      } catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') {
+          throw new AggregateError(
+            [error, cleanupError],
+            '文件写入失败且临时文件清理失败',
+            { cause: error }
+          );
+        }
+      }
+      throw error;
+    }
     return name;
   }
 
@@ -49,9 +64,47 @@ function createFileStore(root) {
   }
 
   function removeOrderFiles(order) {
-    remove('preview', order.previewFile);
-    remove('protected', order.hdFile);
-    remove('protected', order.sheetFile);
+    const files = [
+      ['preview', order?.previewFile],
+      ['protected', order?.hdFile],
+      ['protected', order?.sheetFile]
+    ];
+    const errors = [];
+
+    for (const [kind, name] of files) {
+      if (!name) continue;
+      try {
+        remove(kind, name);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, '部分订单文件清理失败');
+    }
+  }
+
+  function saveOrderFiles(output) {
+    const storedFiles = {};
+    try {
+      storedFiles.previewFile = save('preview', output.previewBuffer, 'jpg');
+      storedFiles.hdFile = save('protected', output.hdBuffer, 'jpg');
+      storedFiles.sheetFile = save('protected', output.sheetBuffer, 'jpg');
+      return storedFiles;
+    } catch (error) {
+      try {
+        removeOrderFiles(storedFiles);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          '订单文件写入失败且未能完全回滚',
+          { cause: error }
+        );
+      }
+      throw error;
+    }
   }
 
   function health() {
@@ -61,7 +114,7 @@ function createFileStore(root) {
     });
   }
 
-  return { dirs, save, resolve, remove, removeOrderFiles, health };
+  return { dirs, save, saveOrderFiles, resolve, remove, removeOrderFiles, health };
 }
 
 module.exports = { createFileStore };

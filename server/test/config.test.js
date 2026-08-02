@@ -27,6 +27,32 @@ test('development permits only explicit mock payments', () => {
   assert.equal(config.requestTimeoutMs, 60_000);
 });
 
+test('numeric configuration rejects suffixes, fractions, and unsafe integers', () => {
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'development', MAX_FILE_MB: '10MB' }),
+    /MAX_FILE_MB 必须是正整数/
+  );
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'development', CLEANUP_INTERVAL_MINUTES: '1.5' }),
+    /CLEANUP_INTERVAL_MINUTES 必须是正整数/
+  );
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'development', TRUST_PROXY_HOPS: '9007199254740992' }),
+    /TRUST_PROXY_HOPS 必须是非负整数/
+  );
+});
+
+test('provider and public URLs reject non-HTTP protocols in every environment', () => {
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'development', PUBLIC_BASE_URL: 'file:///tmp/photo' }),
+    /PUBLIC_BASE_URL 必须使用 HTTP 或 HTTPS/
+  );
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'development', FACE_API_URL: 'ftp://face.example.com' }),
+    /FACE_API_URL 必须使用 HTTP 或 HTTPS/
+  );
+});
+
 test('production requires HTTPS for configured provider endpoints', () => {
   const base = {
     NODE_ENV: 'production',
@@ -43,6 +69,14 @@ test('production requires HTTPS for configured provider endpoints', () => {
     SEG_API_KEY: 'key'
   };
   assert.throws(() => loadConfig({ ...base, SEG_API_URL: 'http://seg.example.com' }), /SEG_API_URL 必须使用 HTTPS/);
+  assert.throws(
+    () => loadConfig({
+      ...base,
+      SEG_API_URL: 'https://seg.example.com',
+      WX_PAY_NOTIFY_URL: 'http://photo.example.com/api/pay/notify'
+    }),
+    /WX_PAY_NOTIFY_URL 必须使用 HTTPS/
+  );
 });
 
 test('production requires an independent strong internal stats token', () => {
